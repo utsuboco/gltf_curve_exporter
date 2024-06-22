@@ -26,9 +26,23 @@ Note: If you're using an older version of Blender or prefer manual installation,
 2. When exporting your scene as glTF, ensure the "Export Curves" option is enabled in the export settings
 3. Export your scene as usual
 
-## Three.js Addon: GLTFCurveExtension
+### Installation
+1. Copy the `GLTFCurveExtension.js` file to your project
+2. Import the extension in your Three.js project
+3. Add the extension to your GLTFLoader:
 
-[... rest of the Three.js section remains unchanged ...]
+```javascript
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { GLTFCurveExtension } from './path/to/GLTFCurveExtension.js';
+
+const loader = new GLTFLoader();
+loader.register(parser => new GLTFCurveExtension(parser));
+
+loader.load('path/to/your/model.gltf', (gltf) => {
+  // Your scene is now loaded with curve data
+  scene.add(gltf.scene);
+});
+```
 
 ## Important Notes
 - Ensure that you're using compatible versions of Blender (4.2.0 beta or later recommended), Three.js, and the extensions

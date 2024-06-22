@@ -106,7 +106,6 @@ class GLTFCurveExtension {
       curves.forEach((c) => finalCurve.add(c));
     }
 
-    console.log(curveData.splines[0]);
     // Create a visible line for the curve
     const points = finalCurve.getPoints(
       curveData.splines[0].resolution_u * 10 || 100
