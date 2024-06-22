@@ -31,7 +31,7 @@ Note: If you're using an older version of Blender or prefer manual installation,
 [... rest of the Three.js section remains unchanged ...]
 
 ## Important Notes
-- Ensure that you're using compatible versions of Blender (2.80 or later recommended), Three.js, and the extensions
+- Ensure that you're using compatible versions of Blender (4.2.0 beta or later recommended), Three.js, and the extensions
 - The Three.js addon requires the `NURBSCurve` class from Three.js examples
 
 ## Known Issues
