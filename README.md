@@ -1,4 +1,4 @@
-# glTF Curve Exporter and Loader
+# glTF Curve Exporter and Threejs Loader
 
 This project provides a set of tools for exporting and importing curve data in glTF files, specifically designed for use with Blender and Three.js. It consists of two main components:
 
