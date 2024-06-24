@@ -52,23 +52,37 @@ class glTF2ExportUserExtension:
 
     def gather_node_hook(self, gltf2_object, blender_object, export_settings):
         logger.debug(f"gather_node_hook called for object: {blender_object.name}")
-        if self.properties.enabled and blender_object.type == 'CURVE':
-            logger.info(f"Processing curve object: {blender_object.name}")
-            curve_data = self.gather_curve_data(blender_object)
-            if curve_data:
-                if gltf2_object.extensions is None:
-                    gltf2_object.extensions = {}
-                extension = self.Extension(
-                    name="UTSUBO_curve_extension",
-                    extension=curve_data,
-                    required=False
-                )
-                gltf2_object.extensions["UTSUBO_curve_extension"] = extension
-                logger.info(f"Added curve extension to object: {blender_object.name}")
+        
+        def process_curve_object(obj):
+            if self.properties.enabled and obj.type == 'CURVE':
+                logger.info(f"Processing curve object: {obj.name}")
+                curve_data = self.gather_curve_data(obj)
+                if curve_data:
+                    if gltf2_object.extensions is None:
+                        gltf2_object.extensions = {}
+                    extension = self.Extension(
+                        name="UTSUBO_curve_extension",
+                        extension=curve_data,
+                        required=False
+                    )
+                    gltf2_object.extensions["UTSUBO_curve_extension"] = extension
+                    logger.info(f"Added curve extension to object: {obj.name}")
+                else:
+                    logger.warning(f"Failed to gather curve data for object: {obj.name}")
             else:
-                logger.warning(f"Failed to gather curve data for object: {blender_object.name}")
-        else:
-            logger.debug(f"Skipping object: {blender_object.name} (type: {blender_object.type})")
+                logger.debug(f"Skipping object: {obj.name} (type: {obj.type})")
+
+        try:
+            if isinstance(blender_object, bpy.types.Object):
+                process_curve_object(blender_object)
+            elif isinstance(blender_object, bpy.types.Collection):
+                logger.info(f"Processing collection: {blender_object.name}")
+                for obj in blender_object.objects:
+                    process_curve_object(obj)
+            else:
+                logger.warning(f"Unexpected object type: {type(blender_object)}")
+        except Exception as e:
+            logger.error(f"Error processing object {blender_object.name}: {str(e)}")
 
     def gather_curve_data(self, blender_object):
         curve_data = blender_object.data
