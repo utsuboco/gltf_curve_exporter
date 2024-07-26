@@ -31,6 +31,9 @@ Note: If you're using an older version of Blender or prefer manual installation,
 2. Import the extension in your Three.js project
 3. Add the extension to your GLTFLoader:
 
+### Support with GLTF-Transform
+`gltf-transform optimize cube.glb cube.glb --config /path/to/gltf-transform-curve.config.mjs`
+
 ```javascript
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { GLTFCurveExtension } from './path/to/GLTFCurveExtension.js';
