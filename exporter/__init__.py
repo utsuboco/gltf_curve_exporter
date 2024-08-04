@@ -6,7 +6,7 @@ import logging
 bl_info = {
     "name": "glTF Curve Exporter Extension",
     "category": "Import-Export",
-    "version": (1, 0, 1),
+    "version": (1, 0, 2),
     "blender": (4, 2, 0),
     "location": "File > Export > glTF 2.0",
     "description": "Extension to export curve data in glTF files.",
@@ -88,25 +88,27 @@ class glTF2ExportUserExtension:
         curve_data = blender_object.data
         splines_data = []
 
+        world_matrix = blender_object.matrix_world
+
         for spline in curve_data.splines:
             points = []
             if spline.type == 'BEZIER':
                 points = [
                     {
-                        "co": self.convert_vector_to_list(p.co),
-                        "handle_left": self.convert_vector_to_list(p.handle_left),
-                        "handle_right": self.convert_vector_to_list(p.handle_right)
+                        "co": self.convert_vector_to_list(world_matrix @ p.co),
+                        "handle_left": self.convert_vector_to_list(world_matrix @ p.handle_left),
+                        "handle_right": self.convert_vector_to_list(world_matrix @ p.handle_right)
                     } for p in spline.bezier_points
                 ]
             elif spline.type == 'NURBS':
                 points = [
                     {
-                        "co": self.convert_vector_to_list(p.co),
+                        "co": self.convert_vector_to_list(world_matrix @ p.co),
                     } for p in spline.points
                 ]
             else:  # 'POLY'
                 points = [
-                    {"co": self.convert_vector_to_list(p.co)} for p in spline.points
+                    {"co": self.convert_vector_to_list(world_matrix @ p.co)} for p in spline.points
                 ]
 
             splines_data.append({
