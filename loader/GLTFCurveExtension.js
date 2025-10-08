@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { NURBSCurve } from 'three/examples/jsm/curves/NURBSCurve.js';
 
 let _index = 0;
@@ -6,6 +6,20 @@ class GLTFCurveExtension {
   constructor(parser) {
     this.parser = parser;
     this.name = 'UTSUBO_curve_extension';
+  }
+
+  // Helper: find an existing Line/LineSegments under a node
+  findExistingLine(object3D) {
+    if (!object3D || typeof object3D.traverse !== 'function') return null;
+    let found = null;
+    object3D.traverse((o) => {
+      if (found) return;
+      // isLine is standard on three.js Line; also check type for safety
+      if (o && (o.isLine || o.type === 'Line' || o.type === 'LineSegments')) {
+        found = o;
+      }
+    });
+    return found;
   }
 
   afterRoot(result) {
@@ -25,11 +39,60 @@ class GLTFCurveExtension {
   createCurves(nodeDefs, result, loadedNodes) {
     const pending = [];
 
+    // Precompute which nodes have the curve extension
+    const nodeCount = nodeDefs.length;
+    const nodeHasCurveExt = new Array(nodeCount).fill(false);
+    for (let i = 0; i < nodeCount; i++) {
+      const nd = nodeDefs[i];
+      nodeHasCurveExt[i] = !!(nd && nd.extensions && nd.extensions[this.name]);
+    }
+
+    // Build parent lists for each node
+    const parents = new Array(nodeCount);
+    for (let i = 0; i < nodeCount; i++) parents[i] = [];
+    for (let i = 0; i < nodeCount; i++) {
+      const nd = nodeDefs[i];
+      if (nd && Array.isArray(nd.children)) {
+        for (const childIndex of nd.children) {
+          if (childIndex >= 0 && childIndex < nodeCount) parents[childIndex].push(i);
+        }
+      }
+    }
+
+    // Mark all ancestors of nodes-with-extension
+    const hasDescendantCurveExt = new Array(nodeCount).fill(false);
+    for (let i = 0; i < nodeCount; i++) {
+      if (!nodeHasCurveExt[i]) continue;
+      const stack = parents[i].slice();
+      const seen = new Set();
+      while (stack.length) {
+        const p = stack.pop();
+        if (p == null || seen.has(p)) continue;
+        seen.add(p);
+        hasDescendantCurveExt[p] = true;
+        for (const pp of parents[p]) stack.push(pp);
+      }
+    }
+
+    // Create curves only for nodes that have the extension and are not ancestors of another extension node
     for (let i = 0; i < nodeDefs.length; i++) {
       const nodeDef = nodeDefs[i];
-      if (nodeDef.extensions && nodeDef.extensions[this.name]) {
-        pending.push(this.createCurve(nodeDef, result, i, loadedNodes[i]));
-      }
+      if (!nodeDef) continue;
+      if (!nodeHasCurveExt[i]) continue;
+      if (hasDescendantCurveExt[i]) continue; // avoid duplicates at collection/root levels
+
+      // Only generate for leaf nodes or nodes with a mesh; skip pure group/container nodes
+      const isLeaf = !Array.isArray(nodeDef.children) || nodeDef.children.length === 0;
+      const hasMesh = nodeDef.mesh !== undefined;
+      if (!isLeaf && !hasMesh) continue;
+
+      // If a Line already exists under this node in the loaded graph, skip creating another
+      const existing = loadedNodes && loadedNodes[i]
+        ? this.findExistingLine(loadedNodes[i])
+        : null;
+      if (existing) continue;
+
+      pending.push(this.createCurve(nodeDef, result, i, loadedNodes[i]));
     }
 
     return Promise.all(pending);
@@ -53,6 +116,7 @@ class GLTFCurveExtension {
           this.convertBlenderToThreeCoordinates(point.handle_right)
         );
 
+
         if (points.length === 2) {
           curve = new THREE.CubicBezierCurve3(
             points[0],
@@ -69,6 +133,7 @@ class GLTFCurveExtension {
               handles1[i + 1],
               points[i + 1]
             );
+            // @ts-ignore - JS context, acceptable for CurvePath of Vector3
             curve.curves.push(bezierCurve);
           }
 
@@ -80,6 +145,7 @@ class GLTFCurveExtension {
               handles1[0],
               points[0]
             );
+            // @ts-ignore - JS context, acceptable for CurvePath of Vector3
             curve.curves.push(bezierCurve);
             curve.curves[0].v0 = points[0].clone(); // Ensure the first point is connected
           }
@@ -106,19 +172,20 @@ class GLTFCurveExtension {
       curves.forEach((c) => finalCurve.add(c));
     }
 
+
     // Create a visible line for the curve
     const points = finalCurve.getPoints(
       curveData.splines[0].resolution_u * 10 || 100
     );
+
     const geometry = new THREE.BufferGeometry().setFromPoints(points);
     const material = new THREE.LineBasicMaterial({ color: 0xffffff });
     const curveObject = new THREE.Line(geometry, material);
-    curveObject.name = nodeDef.name || spline.type + '_' + _index++;
-
-    this.applyNodeTransform(curveObject, nodeDef);
-
+    curveObject.name = nodeDef.name ? `${nodeDef.name}_curve` : `curve_${_index++}`;
+    
     // Store the curve data on the object for future use
     curveObject.userData.curve = finalCurve;
+    curveObject.userData.sourceNodeIndex = nodeIndex;
 
     // Set up associations as in the official GLTFLoader
     if (!this.parser.associations.has(curveObject)) {
@@ -128,7 +195,7 @@ class GLTFCurveExtension {
 
     // Use loadedNode instead of finding it in the scene
     return Promise.resolve(curveObject).then((curveObject) => {
-      this.replaceCurveInScene(result, curveObject, loadedNode);
+      this.replaceCurveInScene(result, curveObject, loadedNode, nodeIndex);
       return curveObject;
     });
   }
@@ -137,59 +204,33 @@ class GLTFCurveExtension {
     return new THREE.Vector3(coord[0], coord[2], -coord[1]);
   }
 
-  applyNodeTransform(object, nodeDef) {
-    if (nodeDef.matrix !== undefined) {
-      const matrix = new THREE.Matrix4();
-      matrix.fromArray(nodeDef.matrix);
-      object.applyMatrix4(matrix);
-    } else {
-      if (nodeDef.translation !== undefined) {
-        object.position.fromArray(nodeDef.translation);
-      }
-      if (nodeDef.rotation !== undefined) {
-        const rotation = new THREE.Quaternion().fromArray(nodeDef.rotation);
-        const euler = new THREE.Euler().setFromQuaternion(rotation, 'XYZ');
-        euler.x = -euler.x;
-        euler.y = -euler.y;
-        object.rotation.copy(euler);
-      }
-      if (nodeDef.scale !== undefined) {
-        object.scale.fromArray(nodeDef.scale);
-      }
-    }
-  }
 
-  replaceCurveInScene(result, curveObject, originalNode) {
+  replaceCurveInScene(result, curveObject, originalNode, nodeIndex) {
     if (originalNode && originalNode.parent) {
       const parent = originalNode.parent;
-      const index = parent.children.indexOf(originalNode);
 
-      if (index !== -1) {
-        // Transfer children
-        while (originalNode.children.length > 0) {
-          curveObject.add(originalNode.children[0]);
-        }
+      // If the parent already has a Line representing this node, skip adding another
+      const hasDuplicate = parent.children.some((o) => {
+        if (!o || !(o.isLine || o.type === 'Line' || o.type === 'LineSegments')) return false;
+        const sameName = o.name === originalNode.name || o.name === curveObject.name;
+        const sameSource = o.userData && o.userData.sourceNodeIndex === nodeIndex;
+        return sameName || sameSource;
+      });
+      if (hasDuplicate) return;
 
-        // Copy transformation
-        curveObject.position.copy(originalNode.position);
-        curveObject.quaternion.copy(originalNode.quaternion);
-        curveObject.scale.copy(originalNode.scale);
+      // Copy transformation so the curve aligns with the original node
+      curveObject.position.copy(originalNode.position);
+      curveObject.quaternion.copy(originalNode.quaternion);
+      curveObject.scale.copy(originalNode.scale);
 
-        // Replace in parent's children array
-        parent.children[index] = curveObject;
-        curveObject.parent = parent;
+      // Merge userData, keeping curveObject-specific data
+      curveObject.userData = {
+        ...originalNode.userData,
+        ...curveObject.userData,
+      };
 
-        // Merge userData
-        curveObject.userData = {
-          ...originalNode.userData,
-          ...curveObject.userData,
-        };
-
-        // Clean up original node
-        originalNode.parent = null;
-      } else {
-        console.warn(`Original node not found in parent's children.`);
-      }
+      // Add as a sibling under the same parent without reparenting any children
+      parent.add(curveObject);
     } else {
       console.warn(
         `Original node or its parent not found. Adding curve to scene root.`
@@ -209,13 +250,9 @@ class GLTFCurveExtension {
       );
 
     const controlPoints = nurbsData.points.map((point) => {
-      const threePoint = this.convertBlenderToThreeCoordinates(point.co);
-      return new THREE.Vector4(
-        threePoint.x,
-        threePoint.y,
-        threePoint.z,
-        point.w || 1
-      );
+      const v = this.convertBlenderToThreeCoordinates(point.co);
+      const w = point.w ?? 1;
+      return new THREE.Vector4(v.x, v.y, v.z, w);
     });
 
     let startKnot, endKnot;
@@ -241,6 +278,7 @@ class GLTFCurveExtension {
 
     // Create CurvePath
     const curvePath = new THREE.CurvePath();
+    // @ts-ignore - JS context, acceptable for CurvePath of Vector3
     curvePath.add(
       new THREE.CatmullRomCurve3(points, nurbsData.use_cyclic_u, 'centripetal')
     );

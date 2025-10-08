@@ -44,6 +44,25 @@ class GLTF_PT_CurveExtensionPanel(Panel):
         props = context.scene.curve_extension_properties
         layout.prop(props, "enabled")
 
+class GLTF_PT_CurveExtensionQuickExporters(Panel):
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = 'collection'
+    bl_label = "glTF Curve Exporter"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        # Show when a collection is active and our scene property exists
+        return hasattr(bpy.types.Scene, 'curve_extension_properties') and context.collection is not None
+
+    def draw(self, context):
+        layout = self.layout
+        col = layout.column(align=True)
+        col.label(text="Quick Exporters")
+        props = context.scene.curve_extension_properties
+        col.prop(props, "enabled", text="Export Curves (Scene)")
+
 class glTF2ExportUserExtension:
     def __init__(self):
         from io_scene_gltf2.io.com.gltf2_io_extensions import Extension
@@ -88,27 +107,30 @@ class glTF2ExportUserExtension:
         curve_data = blender_object.data
         splines_data = []
 
-        world_matrix = blender_object.matrix_world
+        # Export points in object-local space; axis conversion to glTF/three.js space
+        # will be performed in the loader.
 
         for spline in curve_data.splines:
             points = []
             if spline.type == 'BEZIER':
                 points = [
                     {
-                        "co": self.convert_vector_to_list(world_matrix @ p.co),
-                        "handle_left": self.convert_vector_to_list(world_matrix @ p.handle_left),
-                        "handle_right": self.convert_vector_to_list(world_matrix @ p.handle_right)
+                        "co": self.convert_vector_to_list(p.co),
+                        "handle_left": self.convert_vector_to_list(p.handle_left),
+                        "handle_right": self.convert_vector_to_list(p.handle_right)
                     } for p in spline.bezier_points
                 ]
             elif spline.type == 'NURBS':
-                points = [
-                    {
-                        "co": self.convert_vector_to_list(world_matrix @ p.co),
-                    } for p in spline.points
-                ]
+                def nurbs_point_dict(p):
+                    w = float(p.co[3]) if len(p.co) > 3 else 1.0
+                    return {
+                        "co": [float(p.co[0]), float(p.co[1]), float(p.co[2])],
+                        "w": w,
+                    }
+                points = [nurbs_point_dict(p) for p in spline.points]
             else:  # 'POLY'
                 points = [
-                    {"co": self.convert_vector_to_list(world_matrix @ p.co)} for p in spline.points
+                    {"co": [float(p.co[0]), float(p.co[1]), float(p.co[2])]} for p in spline.points
                 ]
 
             splines_data.append({
@@ -131,11 +153,13 @@ def register():
     logger.info("Registering Curve Exporter Extension")
     bpy.utils.register_class(CurveExtensionProperties)
     bpy.utils.register_class(GLTF_PT_CurveExtensionPanel)
+    bpy.utils.register_class(GLTF_PT_CurveExtensionQuickExporters)
     bpy.types.Scene.curve_extension_properties = bpy.props.PointerProperty(type=CurveExtensionProperties)
 
 def unregister():
     logger.info("Unregistering Curve Exporter Extension")
     bpy.utils.unregister_class(GLTF_PT_CurveExtensionPanel)
+    bpy.utils.unregister_class(GLTF_PT_CurveExtensionQuickExporters)
     del bpy.types.Scene.curve_extension_properties
     bpy.utils.unregister_class(CurveExtensionProperties)
 
