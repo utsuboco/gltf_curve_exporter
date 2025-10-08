@@ -6,8 +6,8 @@ import logging
 bl_info = {
     "name": "glTF Curve Exporter Extension",
     "category": "Import-Export",
-    "version": (1, 0, 2),
-    "blender": (4, 2, 0),
+    "version": (1, 0, 3),
+    "blender": (4, 5, 0),
     "location": "File > Export > glTF 2.0",
     "description": "Extension to export curve data in glTF files.",
     "tracker_url": "https://github.com/utsuboco/gltf-curve-exporter/issues/",
